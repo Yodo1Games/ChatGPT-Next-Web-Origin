@@ -1,0 +1,112 @@
+{{- $fullName := include "chatgpt-next-web.fullname" . -}}
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-nginx-configmap
+data:
+  nginx.conf: |-
+    user nginx;
+    worker_processes auto;
+    error_log  /var/log/nginx/error.log warn;
+    pid        /var/run/nginx.pid;
+
+    worker_rlimit_nofile 16384;
+
+    events {
+      worker_connections 8192;
+    }
+
+    http {
+      log_format main
+           '$remote_addr $host $remote_user [$time_local] "$request" $status $bytes_sent "$http_referer" "$http_user_agent" $request_time $upstream_response_time $upstream_addr';
+
+      client_header_timeout  300s; # If after this time the client send nothing, nginx returns error "Request time out" (408).
+      client_body_timeout    300s;
+      send_timeout           300s; # if after this time client will take nothing, then nginx is shutting down the connection.
+      connection_pool_size        256;
+      client_header_buffer_size    1k;
+      large_client_header_buffers    4 2k;
+      request_pool_size        4k;
+      output_buffers   4 32k;
+      postpone_output  1460;
+      sendfile        on;
+      tcp_nopush             on;
+      keepalive_timeout      60 30;
+      tcp_nodelay            on;
+      real_ip_header X-Forwarded-For;
+      set_real_ip_from 0.0.0.0/0;
+
+      client_max_body_size       100m;
+      client_body_buffer_size    256k;
+
+      gzip on;
+      gzip_proxied any;
+      gzip_min_length  1100;
+      gzip_comp_level  6;
+      gzip_buffers     4 32k;
+      gzip_types       application/json text/plain application/x-javascript text/xml text/css;
+
+      ignore_invalid_headers    on;
+
+
+      access_log  /var/log/nginx/access.log  main;
+
+      include /etc/nginx/conf.d/*.conf;
+      include /etc/nginx/sites-enabled/*;
+    }
+
+  default.conf: |-
+    server {
+      listen   80;
+      listen [::]:80;
+      proxy_buffering on;
+      proxy_buffer_size   8k;
+      proxy_buffers   4 8k;
+      proxy_busy_buffers_size   8k;
+
+      
+
+      # error_page 401 = https://gpt-test.yodo1.net/oauth2/sign_in?rd=$scheme://$host$request_uri;
+
+      location /oauth2/ {
+        proxy_pass       http://yodo1-nginx-oauth-base;
+        proxy_set_header Host                    $host;
+        proxy_set_header X-Real-IP               $remote_addr;
+        proxy_set_header X-Scheme                $scheme;
+        # proxy_set_header X-Auth-Request-Redirect $request_uri;
+        # or, if you are handling multiple domains:
+        proxy_set_header X-Auth-Request-Redirect $scheme://$host$request_uri;
+      }
+
+
+      location = /oauth2/auth {
+        internal;
+        proxy_pass       http://yodo1-nginx-oauth-base;
+        proxy_set_header Host             $host;
+        proxy_set_header X-Real-IP        $remote_addr;
+        proxy_set_header X-Scheme         $scheme;
+        # nginx auth_request includes headers but not body
+        proxy_set_header Content-Length   "";
+        proxy_pass_request_body           off;
+      }
+
+
+      location / {
+        auth_request /oauth2/auth;
+        error_page 401 = /oauth2/sign_in?rd=https://$host$request_uri;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Host $http_host;
+        proxy_http_version 1.1;
+        proxy_redirect off;
+        proxy_buffering off;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+        client_max_body_size 1000m;
+        proxy_pass http://127.0.0.1:3000/;
+      
+      }
+     }

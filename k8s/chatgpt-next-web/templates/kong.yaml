@@ -1,0 +1,71 @@
+{{- $fullName := include "chatgpt-next-web.fullname" . -}}
+---
+# -------------------------------------------
+# Define the group with k8s secret.
+# -------------------------------------------
+apiVersion: v1
+stringData:
+  kongCredType: acl
+  group: {{ $fullName }}-all-access-acl-group
+kind: Secret
+metadata:
+  name: {{ $fullName }}-all-access-acl-group
+  labels:
+  {{- include "chatgpt-next-web.labels" . | nindent 4 }}
+type: Opaque
+
+---
+# -------------------------------------------
+# Define the group with k8s secret.
+# -------------------------------------------
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: {{ $fullName }}-key-auth-plugin
+config:
+  key_names:
+    - x-api-key         # This means auth plugin read the key from request header `x-api-key`
+plugin: key-auth
+
+---
+# ----------------------------
+# API Key Auth Plugin
+# ----------------------------
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: {{ $fullName }}-acl-plugin
+  labels:
+  {{- include "chatgpt-next-web.labels" . | nindent 4 }}
+config:
+  allow: # Which groups are allowed to access this service
+    - {{ $fullName }}-all-access-acl-group
+plugin: acl
+# ---
+# -------------------------------------------
+# Define the consumer, and attach the acl-group and credentional with the consumer
+# -------------------------------------------
+# apiVersion: configuration.konghq.com/v1
+# kind: KongConsumer
+# metadata:
+#   annotations:
+#     kubernetes.io/ingress.class: kong
+#   name: {{ $fullName }}-consumer
+# username: {{ $fullName }}-consumer
+# credentials:
+# - warehouse-apps-all-access-acl-group
+# - warehouse-api-all-access-group-acl
+# - mas-portal-4-api-consumer-legacy-key-auth-credential
+# ---
+
+{{- if .Values.ingress.minuteLimit -}}
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: {{ include "chatgpt-next-web.fullname" . }}-ip-limiter-plugin
+config:
+  minute: {{ .Values.ingress.minuteLimit }}
+  limit_by: ip
+  policy: local
+plugin: rate-limiting
+{{- end }}

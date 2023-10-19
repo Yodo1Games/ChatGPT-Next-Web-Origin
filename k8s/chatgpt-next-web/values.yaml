@@ -1,0 +1,185 @@
+# Default values for chatgpt-next-web.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# env:
+#           - name: LANG
+#             value: "en_US.utf-8"
+#           - name: SPRING_PROFILES_ACTIVE
+#             value: "dev"
+#           - name: TZ
+#             value: "Asia/Shanghai"
+
+replicaCount: 1
+
+app:
+  ports:
+    - name: http
+      containerPort: 3000
+      protocol: TCP
+
+  #   - name: health-http
+  #     containerPort: 9000
+  #     protocol: TCP
+  # livenessProbe:
+  #   failureThreshold: 3
+  #   httpGet:
+  #     path: /actuator
+  #     port: 9000
+  #     scheme: HTTP
+  #   initialDelaySeconds: 180
+  #   periodSeconds: 30
+  #   successThreshold: 1
+  #   timeoutSeconds: 1
+  # readinessProbe:
+  #   failureThreshold: 3
+  #   httpGet:
+  #     path: /actuator
+  #     port: 9000
+  #     scheme: HTTP
+  #   initialDelaySeconds: 180
+  #   periodSeconds: 30
+  #   successThreshold: 1
+  #   timeoutSeconds: 1
+  env:
+    API_CLUSTER_NAME: AP_EAST_1
+    LANG: "en_US.utf-8"
+    TZ: "Asia/Shanghai"
+    HIDE_BALANCE_QUERY: 1
+    DISABLE_GPT4: 0
+    BASE_URL: "http://azure-openai-proxy"
+    
+  # secret_env:
+  #   - name: TALON_API_CONFIRM
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: chatgpt-next-web-confirm
+  #         key: confirm
+
+image:
+  repository: yodo1/chatgpt-next-web
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets:
+  - name: dockerhub
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+
+ingress:
+  enabled: true
+  annotations:
+    app.kubernetes.io/name: chatgpt-next-web
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/ingress.class: kong
+    konghq.com/protocols: https
+    konghq.com/https-redirect-status-code: '301'
+  #kong_plugins: "chatgpt-next-web-key-auth-plugin, chatgpt-next-web-acl-plugin"
+  # public_endpoints:
+  #   - /health_check
+  
+  rules:
+    - host: gpt.yodo1.net
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: '{{ include "chatgpt-next-web.fullname" . }}'
+              port:
+                number: 80
+                
+    - host: newgpt.yodo1.net
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: '{{ include "chatgpt-next-web.fullname" . }}'
+              port:
+                number: 80
+    
+
+  tls:
+    - hosts:
+      - gpt.yodo1.net
+      - newgpt.yodo1.net
+      secretName: tls-chatgpt-next-web-yodo1-net
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 500Mi
+  requests:
+    cpu: 100m
+    memory: 500Mi
+
+# lifecycle: 
+#   postStart: 
+#     exec:
+#       command: ["/bin/sh", "-c", "cp -r /www/. /var/www/html && chmod -R 777 /var/www/html"] 
+
+volumeMounts:
+  - name: shared-work-dir
+    mountPath: /var/www/html
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 65
+  targetMemoryUtilizationPercentage: 65
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+volumes:
+  - name: nginx-config
+    configMap:
+      name: chatgpt-next-web-nginx-configmap
+      items:
+      - key: nginx.conf
+        path: nginx.conf
+  - name: default-config
+    configMap:
+      name: chatgpt-next-web-nginx-configmap
+      items:
+      - key: default.conf
+        path: default.conf
+  - name: shared-work-dir
+    emptyDir: {}
